@@ -4,9 +4,10 @@ import random
 import os
 import neat
 import pickle
+from neat.parallel import ParallelEvaluator  # 导入 ParallelEvaluator
 
 class SnakeGame:
-    def __init__(self, width=480, height=480, snake_size=20, fps=30, max_steps=3000):
+    def __init__(self, width=480, height=480, snake_size=20, fps=30, max_steps=5000):
         self.width = width
         self.height = height
         self.snake_size = snake_size
@@ -92,19 +93,20 @@ def extract_features(game):
 
     return np.array(features, dtype=float)
 
-def eval_genomes(genomes, config):
-    for genome_id, genome in genomes:
-        genome.fitness = 0
-        net = neat.nn.FeedForwardNetwork.create(genome, config)
-        game = SnakeGame()
+def eval_genome(genome, config):
+    genome.fitness = 0
+    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    game = SnakeGame()
 
-        while not game.is_over():
-            inputs = extract_features(game)
-            output = net.activate(inputs)
-            move = np.argmax(output)
-            game.move(move)
+    while not game.is_over():
+        inputs = extract_features(game)
+        output = net.activate(inputs)
+        move = np.argmax(output)
+        game.move(move)
 
-        genome.fitness = (game.score * game.score * 2) - (game.steps * 1)  # 修改适应度计算
+    genome.fitness = (game.score * game.score * 3) - (game.steps * 1)  # 修改适应度计算
+    return genome.fitness  # 添加这一行返回适应度值
+# 删除 eval_genomes，因为我们将使用 ParallelEvaluator
 
 class CustomCheckpointer(neat.Checkpointer):
     def __init__(self, generation_interval, prefix):
@@ -129,9 +131,13 @@ def run(config_file):
     p.add_reporter(neat.StdOutReporter(True))
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
-    p.add_reporter(CustomCheckpointer(generation_interval=10, prefix='snake_neat_checkpoint_'))  # 修改 generation_interval 为 10
+    p.add_reporter(CustomCheckpointer(generation_interval=5, prefix='snake_neat_checkpoint_'))  # 修改 generation_interval 为 5
 
-    winner = p.run(eval_genomes, 3000)  # 将训练代数增加到3000
+    # 使用 ParallelEvaluator 进行并行评估
+    num_workers = os.cpu_count()  # 使用所有可用的CPU核心
+    pe = ParallelEvaluator(num_workers, eval_genome)
+
+    winner = p.run(pe.evaluate, 5000)  # 将训练代数增加到5000
 
     print('\nBest genome:\n{!s}'.format(winner))
 
